@@ -19,6 +19,7 @@ menu_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Выгрузить папку")],
         [KeyboardButton(text="Получить папку")],
+        [KeyboardButton(text="Удалить папку")],
     ],
     resize_keyboard=True
 )
@@ -28,6 +29,7 @@ class Steps(StatesGroup):
     WAIT_FILES = State()
     WAIT_FOLDER_NAME = State()
     WAIT_CHOOSE_FOLDER = State()
+    WAIT_DELETE_FOLDER = State()   # Для удаления
 
 @dp.message(Command("start"))
 async def start_handler(message: Message, state: FSMContext):
@@ -69,6 +71,39 @@ async def get_folder(message: Message, state: FSMContext):
     )
     await state.set_state(Steps.WAIT_CHOOSE_FOLDER)
     await message.answer("Выберите папку для скачивания:", reply_markup=kb)
+
+# Новый хэндлер для кнопки "Удалить папку"
+@dp.message(F.text == "Удалить папку")
+async def choose_folder_to_delete(message: Message, state: FSMContext):
+    folders = [d for d in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, d))]
+    if not folders:
+        await message.answer("Нет сохранённых папок для удаления.")
+        return
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=f)] for f in folders] + [[KeyboardButton(text="Отмена")]],
+        resize_keyboard=True
+    )
+    await state.set_state(Steps.WAIT_DELETE_FOLDER)
+    await message.answer("Выберите папку для удаления:", reply_markup=kb)
+
+# Логика удаления выбранной папки
+@dp.message(Steps.WAIT_DELETE_FOLDER)
+async def delete_folder_handler(message: Message, state: FSMContext):
+    folder_name = message.text.strip()
+    if folder_name.lower() == "отмена":
+        await state.clear()
+        await message.answer("Удаление отменено.", reply_markup=menu_kb)
+        return
+    folder_path = os.path.join(DATA_DIR, folder_name)
+    if not os.path.isdir(folder_path):
+        await message.answer("Папка не найдена. Выберите из списка.")
+        return
+    try:
+        shutil.rmtree(folder_path)
+        await state.clear()
+        await message.answer(f"Папка <b>{folder_name}</b> удалена! 🗑️", reply_markup=menu_kb, parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"Ошибка при удалении: {e}", reply_markup=menu_kb)
 
 @dp.message(Steps.WAIT_FILES, F.document)
 async def save_file(message: Message, state: FSMContext):
