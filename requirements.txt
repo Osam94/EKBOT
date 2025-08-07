@@ -1,3 +1,2 @@
-dropbox==11.36.2
 aiogram==3.5.0
 python-dotenv
