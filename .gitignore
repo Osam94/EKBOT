@@ -1,3 +1,5 @@
 .env
 storage/
 __pycache__/
+gdrive_creds.json
+
