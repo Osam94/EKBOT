@@ -1,3 +1,2 @@
-aiogram==3.5.0
-python-dotenv
-pandas
+aiogram==3.4.1
+pandas==2.2.2
