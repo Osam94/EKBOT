@@ -1,15 +1,17 @@
-from aiogram import Bot, Dispatcher, types
+import os
+import asyncio
+import pandas as pd
+import tempfile
+
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-import pandas as pd
-import os
-import tempfile
-import asyncio
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PASSWORD = os.environ.get("PASSWORD", "EKMOB")
 DATA_FILE = "data.csv"
+
 bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 user_states = {}
@@ -21,10 +23,11 @@ main_kb = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
-COLUMNS = ["Номер отправления", "Артикул", "Наименование товара", "Ваша цена"]
+
+COLUMNS = ["Номер отправления", "Наименование товара"]
 
 def save_filtered_csv(file_path):
-    df = pd.read_csv(file_path)
+    df = pd.read_csv(file_path, dtype=str).fillna("")
     df = df[[col for col in COLUMNS if col in df.columns]]
     df.to_csv(DATA_FILE, index=False)
     return len(df)
@@ -33,12 +36,11 @@ def search_rows(query):
     if not os.path.exists(DATA_FILE):
         return []
     df = pd.read_csv(DATA_FILE, dtype=str).fillna("")
-    results = []
     query = query.lower()
-    for idx, row in df.iterrows():
+    results = []
+    for _, row in df.iterrows():
         if (
             query in str(row["Номер отправления"]).lower()
-            or query in str(row["Артикул"]).lower()
             or query in str(row["Наименование товара"]).lower()
         ):
             results.append(row)
@@ -48,7 +50,7 @@ def search_rows(query):
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать! Введите пароль:")
 
-@dp.message(lambda message: message.document is not None)
+@dp.message(F.document)
 async def handle_document(message: types.Message):
     user_id = message.from_user.id
     state = user_states.setdefault(user_id, {})
@@ -85,13 +87,12 @@ async def main_menu(message: types.Message):
         await message.answer("Пожалуйста, отправьте CSV-файл или отмените загрузку.")
         return
 
-    # Главное меню
     if message.text == "📁 Загрузить CSV":
         await message.answer("Отправьте CSV-файл (только один, он заменит старый).", reply_markup=types.ReplyKeyboardRemove())
         state["awaiting_csv"] = True
         return
     elif message.text == "🔍 Найти":
-        await message.answer("Введите номер отправления, артикул или часть названия товара:")
+        await message.answer("Введите номер отправления или часть названия товара:")
         state["awaiting_query"] = True
         return
     elif message.text == "📋 Показать всё":
@@ -104,7 +105,7 @@ async def main_menu(message: types.Message):
             return
         text = ""
         for i, row in df.iterrows():
-            text += f'{row["Номер отправления"]} | {row["Артикул"]} | {row["Наименование товара"]} | {row["Ваша цена"]}\n'
+            text += f'{row["Номер отправления"]} | {row["Наименование товара"]}\n'
             if i % 20 == 19:
                 await message.answer(text)
                 text = ""
@@ -120,7 +121,7 @@ async def main_menu(message: types.Message):
         else:
             text = ""
             for i, row in enumerate(results):
-                text += f'{row["Номер отправления"]} | {row["Артикул"]} | {row["Наименование товара"]} | {row["Ваша цена"]}\n'
+                text += f'{row["Номер отправления"]} | {row["Наименование товара"]}\n'
                 if i % 20 == 19:
                     await message.answer(text)
                     text = ""
