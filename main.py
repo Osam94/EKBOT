@@ -27,10 +27,18 @@ main_kb = ReplyKeyboardMarkup(
 COLUMNS = ["Номер отправления", "Артикул", "Наименование товара", "Ваша цена"]
 
 def save_filtered_csv(file_path):
-    df = pd.read_csv(file_path)
-    df = df[[col for col in COLUMNS if col in df.columns]]
-    df.to_csv(DATA_FILE, index=False)
-    return len(df)
+    # Универсальный разбор: ; или ,
+    for sep in [';', ',']:
+        try:
+            df = pd.read_csv(file_path, delimiter=sep, encoding='utf-8')
+            cols = [col for col in COLUMNS if col in df.columns]
+            if len(cols) == 4:
+                df = df[cols]
+                df.to_csv(DATA_FILE, index=False)
+                return len(df)
+        except Exception as e:
+            continue
+    raise Exception("Файл не содержит нужные столбцы или некорректный формат.")
 
 def search_rows(query):
     if not os.path.exists(DATA_FILE):
@@ -63,7 +71,6 @@ async def main_menu(message: types.Message):
             await message.answer("❌ Неверный пароль. Попробуйте ещё раз.")
         return
 
-    # Главное меню
     if message.text == "📁 Загрузить CSV":
         await message.answer("Отправьте CSV-файл (только один, он заменит старый).", reply_markup=types.ReplyKeyboardRemove())
         state["awaiting_csv"] = True
@@ -90,7 +97,6 @@ async def main_menu(message: types.Message):
             await message.answer(text)
         return
 
-    # Поиск по запросу
     if state.get("awaiting_query"):
         results = search_rows(message.text)
         if not results:
@@ -124,7 +130,13 @@ async def handle_document(message: types.Message):
         return
     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmpfile:
         await bot.download(doc, destination=tmpfile.name)
-        count = save_filtered_csv(tmpfile.name)
+        try:
+            count = save_filtered_csv(tmpfile.name)
+        except Exception as e:
+            await message.answer(f"Ошибка загрузки файла: {e}", reply_markup=main_kb)
+            state["awaiting_csv"] = False
+            os.remove(tmpfile.name)
+            return
         os.remove(tmpfile.name)
     await message.answer(f"CSV-файл загружен и обработан! Всего строк: {count}", reply_markup=main_kb)
     state["awaiting_csv"] = False
