@@ -3,12 +3,12 @@ import asyncio
 import pandas as pd
 import tempfile
 
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardRemove, Document
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN") or "ВАШ_ТОКЕН_ЗДЕСЬ"
 PASSWORD = os.environ.get("PASSWORD", "EKMOB")
 DATA_FILE = "data.csv"
 
@@ -27,18 +27,10 @@ main_kb = ReplyKeyboardMarkup(
 COLUMNS = ["Номер отправления", "Артикул", "Наименование товара", "Ваша цена"]
 
 def save_filtered_csv(file_path):
-    # Универсальный разбор: ; или ,
-    for sep in [';', ',']:
-        try:
-            df = pd.read_csv(file_path, delimiter=sep, encoding='utf-8')
-            cols = [col for col in COLUMNS if col in df.columns]
-            if len(cols) == 4:
-                df = df[cols]
-                df.to_csv(DATA_FILE, index=False)
-                return len(df)
-        except Exception as e:
-            continue
-    raise Exception("Файл не содержит нужные столбцы или некорректный формат.")
+    df = pd.read_csv(file_path, dtype=str).fillna("")
+    df = df[[col for col in COLUMNS if col in df.columns]]
+    df.to_csv(DATA_FILE, index=False)
+    return len(df)
 
 def search_rows(query):
     if not os.path.exists(DATA_FILE):
@@ -56,11 +48,11 @@ def search_rows(query):
     return results
 
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def cmd_start(message: Message):
     await message.answer("Добро пожаловать! Введите пароль:")
 
-@dp.message()
-async def main_menu(message: types.Message):
+@dp.message(F.text)
+async def main_menu(message: Message):
     user_id = message.from_user.id
     state = user_states.setdefault(user_id, {})
     if not state.get("authorized"):
@@ -71,8 +63,13 @@ async def main_menu(message: types.Message):
             await message.answer("❌ Неверный пароль. Попробуйте ещё раз.")
         return
 
+    # Главное меню
+    if state.get("awaiting_csv"):
+        await message.answer("Пожалуйста, отправьте CSV-файл.")
+        return
+
     if message.text == "📁 Загрузить CSV":
-        await message.answer("Отправьте CSV-файл (только один, он заменит старый).", reply_markup=types.ReplyKeyboardRemove())
+        await message.answer("Отправьте CSV-файл (только один, он заменит старый).", reply_markup=ReplyKeyboardRemove())
         state["awaiting_csv"] = True
         return
     elif message.text == "🔍 Найти":
@@ -90,7 +87,7 @@ async def main_menu(message: types.Message):
         text = ""
         for i, row in df.iterrows():
             text += f'{row["Номер отправления"]} | {row["Артикул"]} | {row["Наименование товара"]} | {row["Ваша цена"]}\n'
-            if i % 20 == 19:  # Отправлять по 20 строк за раз
+            if i % 20 == 19:
                 await message.answer(text)
                 text = ""
         if text:
@@ -114,8 +111,8 @@ async def main_menu(message: types.Message):
         await message.answer("Что дальше?", reply_markup=main_kb)
         return
 
-@dp.message(lambda m: m.document is not None)
-async def handle_document(message: types.Message):
+@dp.message(F.document)
+async def handle_document(message: Message):
     user_id = message.from_user.id
     state = user_states.setdefault(user_id, {})
     if not state.get("authorized"):
@@ -129,14 +126,8 @@ async def handle_document(message: types.Message):
         await message.answer("Пожалуйста, отправьте именно CSV-файл.")
         return
     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmpfile:
-        await bot.download(doc, destination=tmpfile.name)
-        try:
-            count = save_filtered_csv(tmpfile.name)
-        except Exception as e:
-            await message.answer(f"Ошибка загрузки файла: {e}", reply_markup=main_kb)
-            state["awaiting_csv"] = False
-            os.remove(tmpfile.name)
-            return
+        await bot.download(file=doc, destination=tmpfile.name)
+        count = save_filtered_csv(tmpfile.name)
         os.remove(tmpfile.name)
     await message.answer(f"CSV-файл загружен и обработан! Всего строк: {count}", reply_markup=main_kb)
     state["awaiting_csv"] = False
